@@ -1,21 +1,15 @@
 package com.tehasdf.mapreduce.load
 
-import java.io.IOException
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FSDataInputStream
-import org.apache.hadoop.fs.FileSystem
-import org.apache.hadoop.fs.Path
-import org.apache.hadoop.io.LongWritable
-import org.apache.hadoop.io.Text
-import org.apache.hadoop.mapreduce.InputSplit
-import org.apache.hadoop.mapreduce.RecordReader
-import org.apache.hadoop.mapreduce.TaskAttemptContext
-import org.apache.hadoop.mapreduce.lib.input.FileSplit
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
 import com.tehasdf.sstable.IndexReader
-import com.tehasdf.sstable.input.SeekableDataInputStream
-import com.tehasdf.sstable.input.SeekableDataInputStreamProxy
+import com.tehasdf.sstable.input.{SeekableDataInputStream, SeekableDataInputStreamProxy}
+
+import org.apache.hadoop.fs.FSDataInputStream
+import org.apache.hadoop.io.{LongWritable, Text}
+import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, TaskAttemptContext}
+import org.apache.hadoop.mapreduce.lib.input.FileSplit
+import org.slf4j.LoggerFactory
+
+import java.io.IOException
 
 object SSTableIndexRecordReader {
   val Log = LoggerFactory.getLogger(classOf[SSTableIndexRecordReader])
@@ -24,14 +18,11 @@ object SSTableIndexRecordReader {
 case class IndexReaderStream(is: FSDataInputStream, seekable: SeekableDataInputStream, reader: IndexReader)
 
 class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
-  protected var fileStart: Long = 0L
   protected var reader: Option[IndexReaderStream] = None 
   protected var currentPair: Option[(Text, LongWritable)] = None
   
   def initialize(genericSplit: InputSplit, context: TaskAttemptContext) {
     val split = genericSplit.asInstanceOf[FileSplit]
-    fileStart = split.getStart();
-    val end = fileStart + split.getLength;
     
     val file = split.getPath;
     val job = context.getConfiguration()
@@ -63,9 +54,13 @@ class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
   def nextKeyValue(): Boolean = {
     reader.map { r =>
       if (r.reader.hasNext) {
-        val key = r.reader.next()
-        currentPair = Some((new Text(key.name), new LongWritable(key.pos)))
-        true
+        try {
+          val key = r.reader.next()
+          currentPair = Some((new Text(key.name), new LongWritable(key.pos)))
+          true
+        } catch {
+          case ex: IOException => false
+        }
       } else { false }
     }.getOrElse(false)
   }
