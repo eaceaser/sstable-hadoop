@@ -59,7 +59,6 @@ class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
 //    val compressedIs = new SnappyCompressedSeekableDataStream(seekableDataFile, compressionInfo)
     val seekable = InMemorySeekableDataStream.fromSnappyCompressedData(compressedBuf, file.compressionOffsets)
     seekable.seek(file.firstKeyPosition)
-    println("wtf!!! :%d".format(seekable.position))
     reader = Some(DataInput(new DataReader(seekable), seekable, dataIs))
   }
 

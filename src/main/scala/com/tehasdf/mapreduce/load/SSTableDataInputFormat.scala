@@ -76,7 +76,6 @@ class SSTableDataInputFormat extends PigFileInputFormat[Text, MapWritable] {
         val closestChunkOffset = compressedChunks(chunkIndex)
 
         if (closestChunkOffset != currentChunkOffsets.last) {
-//          val nextChunkPos  = compressedChunks.lift(chunkIndex + 1).getOrElse(fileStatus.getLen())
           val currentSplitSize = closestChunkOffset - currentChunkOffsets.head
 
           if (currentSplitSize > maxSplitSize) {
@@ -93,7 +92,7 @@ class SSTableDataInputFormat extends PigFileInputFormat[Text, MapWritable] {
             currentChunkOffsets.clear()
             currentChunkOffsets.append(lastChunk)
             currentChunkOffsets.append(closestChunkOffset)
-            Log.info("Added split: %s".format(split))
+            Log.debug("Added split: %s".format(split))
           } else {
             currentChunkOffsets.append(closestChunkOffset)
           }
@@ -101,19 +100,15 @@ class SSTableDataInputFormat extends PigFileInputFormat[Text, MapWritable] {
         previousPos = key.pos
       }
 
-/*      if ( currentChunkOffsets.length > 1) {
-        val currentSplitSize = fileStatus.getLen() - currentChunkOffsets.head
-        val initialChunkIndex = (previousKey.pos / compressionInfo.chunkLength).toInt
-        val initialChunkOffset = compressedChunks(initialChunkIndex)
-        val split = new CompressedSSTableSplit(
-           path=file,
-           start=currentChunkOffsets.head,
-           length=currentSplitSize,
-           firstKeyPosition=previousKey.pos-currentChunkOffsets.head,
-           compressionOffsets=currentChunkOffsets.map(_-currentChunkOffsets.head).toSeq,
-           hosts=blockLocations(0).getHosts())
-        rv.add(split)
-      } */
+      val finalSplitSize = fileStatus.getLen() - currentChunkOffsets.head
+      val split = new CompressedSSTableSplit(
+          path = file,
+          start = currentChunkOffsets.head,
+          length = finalSplitSize,
+          firstKeyPosition = chunkOffsetPos % compressionInfo.chunkLength,
+          compressionOffsets = currentChunkOffsets.map(_-currentChunkOffsets.head).toSeq,
+          hosts=blockLocations(0).getHosts())
+      rv.add(split)
     }
 
     rv
