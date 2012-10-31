@@ -7,23 +7,18 @@ import org.apache.hadoop.fs.FSDataInputStream
 import org.apache.hadoop.io.{LongWritable, Text}
 import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.input.FileSplit
-import org.slf4j.LoggerFactory
 
 import java.io.IOException
-
-object SSTableIndexRecordReader {
-  val Log = LoggerFactory.getLogger(classOf[SSTableIndexRecordReader])
-}
 
 case class IndexReaderStream(is: FSDataInputStream, seekable: SeekableDataInputStream, reader: IndexReader)
 
 class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
-  protected var reader: Option[IndexReaderStream] = None 
+  protected var reader: Option[IndexReaderStream] = None
   protected var currentPair: Option[(Text, LongWritable)] = None
-  
+
   def initialize(genericSplit: InputSplit, context: TaskAttemptContext) {
     val split = genericSplit.asInstanceOf[FileSplit]
-    
+
     val file = split.getPath;
     val job = context.getConfiguration()
     val fs = file.getFileSystem(job)
@@ -34,14 +29,14 @@ class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
       val length = fs.getFileStatus(split.getPath).getLen()
     }
     val indexReader = new IndexReader(seekable)
-    
+
     reader = Some(IndexReaderStream(is, seekable, indexReader))
   }
-  
+
   def close() {
     reader.foreach { _.is.close() }
   }
-  
+
   def getCurrentKey(): Text = currentPair.map(_._1).getOrElse(null)
   def getCurrentValue(): LongWritable = currentPair.map(_._2).getOrElse(null)
 
@@ -50,7 +45,7 @@ class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
       r.seekable.position / r.seekable.length.toFloat
     }.getOrElse(0.0f)
   }
-  
+
   def nextKeyValue(): Boolean = {
     reader.map { r =>
       if (r.reader.hasNext) {

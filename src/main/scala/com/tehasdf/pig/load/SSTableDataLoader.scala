@@ -1,6 +1,7 @@
 package com.tehasdf.pig.load
 
 import org.apache.pig.LoadFunc
+
 import org.apache.pig.LoadMetadata
 import com.tehasdf.mapreduce.load.SSTableDataInputFormat
 import org.apache.pig.data.Tuple
@@ -23,6 +24,11 @@ import java.util.ArrayList
 import org.apache.hadoop.io.BytesWritable
 import org.apache.pig.data.TupleFactory
 import org.apache.pig.data.DataByteArray
+import org.apache.pig.impl.util.Utils
+
+object SSTableDataLoader {
+  private[SSTableDataLoader] val Schema = "key:chararray,columns:[]"
+}
 
 class SSTableDataLoader extends LoadFunc with LoadMetadata {
   private var reader: Option[RecordReader[Text, MapWritable]] = None
@@ -34,6 +40,7 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
   }
 
   def setLocation(loc: String, job: Job) {
+    FileInputFormat.setMaxInputSplitSize(job, 512*1024)
     FileInputFormat.setInputPaths(job, loc)
   }
 
@@ -42,7 +49,7 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
   def getStatistics(k: String, j: Job) = null
 
   def getSchema(f: String, j: Job) = {
-    val bagTuple = Array[Schema.FieldSchema](
+/*    val bagTuple = Array[Schema.FieldSchema](
       new Schema.FieldSchema("name", DataType.BYTEARRAY),
       new Schema.FieldSchema("value", DataType.BYTEARRAY))
 
@@ -51,7 +58,8 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
       new Schema.FieldSchema("columns", new Schema(new Schema.FieldSchema("t", new Schema(Arrays.asList(bagTuple: _*)), DataType.TUPLE)), DataType.BAG)
     )
 
-    new ResourceSchema(new Schema(Arrays.asList(fields: _*)))
+    new ResourceSchema(new Schema(Arrays.asList(fields: _*))) */
+    new ResourceSchema(Utils.getSchemaFromString(SSTableDataLoader.Schema))
   }
 
   def getNext(): Tuple = {
@@ -62,21 +70,18 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
           val cols = r.getCurrentValue()
 
           val rv = fact.newTuple()
-          rv.append(key)
+          rv.append(key.toString())
 
           val keys = cols.keySet()
           val keysIt = keys.iterator()
-          val bagTuples = new ArrayList[Tuple]()
+          val map = new java.util.HashMap[DataByteArray, DataByteArray]()
           while (keysIt.hasNext()) {
-            val tuple = fact.newTuple()
-            val colName = keysIt.next()
-            tuple.append(new DataByteArray(colName.asInstanceOf[BytesWritable].getBytes()))
-            val colData = new DataByteArray(cols.get(colName).asInstanceOf[BytesWritable].getBytes())
-            tuple.append(colData)
-            bagTuples.add(tuple)
+            val colNameStr = keysIt.next()
+            val colName = new DataByteArray(colNameStr.asInstanceOf[BytesWritable].getBytes())
+            val colData = new DataByteArray(cols.get(colNameStr).asInstanceOf[BytesWritable].getBytes())
+            map.put(colName, colData)
           }
-          val colBag = new DefaultDataBag(bagTuples)
-          rv.append(colBag)
+          rv.append(map)
           rv
         case false =>
           null

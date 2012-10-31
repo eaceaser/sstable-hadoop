@@ -17,46 +17,55 @@ import com.tehasdf.sstable.Row
 import org.apache.hadoop.io.MapWritable
 import java.io.InputStream
 import com.tehasdf.sstable.input.SeekableDataInputStream
+import com.tehasdf.mapreduce.load.CompressedSSTableSplit
+import com.tehasdf.sstable.input.InMemorySeekableDataStream
+import org.apache.commons.logging.LogFactory
 
 class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
-  case class DataInput(reader: DataReader, seekable: SeekableDataInputStream, dataInputStream: InputStream, compressionInfoInputStream: InputStream)
+  case class DataInput(reader: DataReader, seekable: SeekableDataInputStream, dataInputStream: InputStream)
 
   protected var reader: Option[DataInput] = None
   private var currentRow: Option[Row] = None
 
+  val Log = LogFactory.getLog(classOf[SSTableDataRecordReader])
   def initialize(genericSplit: InputSplit, context: TaskAttemptContext) {
-    val file = genericSplit.asInstanceOf[FileSplit]
-    val path = file.getPath()
+    val file = genericSplit.asInstanceOf[CompressedSSTableSplit]
+    val path = file.path
     val dir = path.getParent()
 
-    val compressionInfoFile = path.getName().replaceAll("-Data\\.db$", "-CompressionInfo.db")
-    val compressionInfoPath = new Path(dir, compressionInfoFile)
-    println("Reading compression info from file: %s".format(compressionInfoFile))
+//    val compressionInfoFile = path.getName().replaceAll("-Data\\.db$", "-CompressionInfo.db")
+//    val compressionInfoPath = new Path(dir, compressionInfoFile)
+//    println("Reading compression info from file: %s".format(compressionInfoFile))
 
     val fs = path.getFileSystem(context.getConfiguration())
 
-    if (!fs.exists(compressionInfoPath)) {
-      throw new IOException("%s does not exist.".format(compressionInfoFile))
-    }
+//    if (!fs.exists(compressionInfoPath)) {
+//      throw new IOException("%s does not exist.".format(compressionInfoFile))
+//    }
 
     val dataIs = fs.open(path)
-    val seekableDataFile = new SeekableDataInputStreamProxy(dataIs) {
-      def position = dataIs.getPos()
-      def seek(to: Long) = dataIs.seek(to)
-      val length = fs.getFileStatus(path).getLen()
-    }
+    val compressedBuf = new Array[Byte](file.getLength().toInt)
+    dataIs.readFully(file.start, compressedBuf)
 
-    val compressionInfoIs = fs.open(compressionInfoPath)
-    val compressionInfo = new CompressionInfoReader(compressionInfoIs)
+//    val seekableDataFile = new SeekableDataInputStreamProxy(dataIs) {
+//      def position = dataIs.getPos()
+//      def seek(to: Long) = dataIs.seek(to)
+//      val length = fs.getFileStatus(path).getLen()
+//    }
 
-    val compressedIs = new SnappyCompressedSeekableDataStream(seekableDataFile, compressionInfo)
-    reader = Some(DataInput(new DataReader(compressedIs), seekableDataFile, dataIs, compressionInfoIs))
+//    val compressionInfoIs = fs.open(compressionInfoPath)
+//    val compressionInfo = new CompressionInfoReader(compressionInfoIs)
+
+//    val compressedIs = new SnappyCompressedSeekableDataStream(seekableDataFile, compressionInfo)
+    val seekable = InMemorySeekableDataStream.fromSnappyCompressedData(compressedBuf, file.compressionOffsets)
+    seekable.seek(file.firstKeyPosition)
+    println("wtf!!! :%d".format(seekable.position))
+    reader = Some(DataInput(new DataReader(seekable), seekable, dataIs))
   }
 
   def close() = {
     reader.foreach { r =>
       r.dataInputStream.close()
-      r.compressionInfoInputStream.close()
     }
   }
 
