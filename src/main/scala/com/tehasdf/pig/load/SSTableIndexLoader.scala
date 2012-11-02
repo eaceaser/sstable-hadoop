@@ -1,22 +1,14 @@
 package com.tehasdf.pig.load
 
-import java.io.IOException
-import org.apache.hadoop.mapreduce.InputFormat
-import org.apache.hadoop.mapreduce.Job
-import org.apache.hadoop.mapreduce.RecordReader
-import org.apache.pig.LoadFunc
-import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit
-import org.apache.pig.data.Tuple
 import com.tehasdf.mapreduce.load.SSTableIndexInputFormat
-import org.apache.hadoop.io.LongWritable
-import org.apache.hadoop.io.Text
-import org.apache.pig.data.TupleFactory
+
+import org.apache.hadoop.io.{LongWritable, Text}
+import org.apache.hadoop.mapreduce.{Job, RecordReader}
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
-import org.apache.pig.LoadMetadata
-import org.apache.pig.Expression
-import org.apache.pig.ResourceSchema
+import org.apache.pig.{Expression, LoadFunc, LoadMetadata, ResourceSchema}
+import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit
+import org.apache.pig.data.{DataType, Tuple, TupleFactory}
 import org.apache.pig.impl.logicalLayer.schema.Schema
-import org.apache.pig.data.DataType
 import org.apache.pig.impl.logicalLayer.schema.Schema.FieldSchema
 
 class SSTableIndexLoader extends LoadFunc with LoadMetadata {

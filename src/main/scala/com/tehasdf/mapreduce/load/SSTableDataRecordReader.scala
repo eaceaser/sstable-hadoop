@@ -1,25 +1,14 @@
 package com.twitter.mapreduce.load
 
-import org.apache.hadoop.mapreduce.RecordReader
-import org.apache.hadoop.io.BytesWritable
-import org.apache.hadoop.io.Text
-import org.apache.hadoop.mapreduce.InputSplit
-import org.apache.hadoop.mapreduce.TaskAttemptContext
-import org.apache.hadoop.mapreduce.lib.input.FileSplit
-import org.apache.hadoop.fs.Path
-import java.io.IOException
-import com.tehasdf.sstable.DataReader
-import com.tehasdf.sstable.input.SeekableDataInputStreamProxy
-import com.tehasdf.sstable.IndexReader
-import com.tehasdf.sstable.CompressionInfoReader
-import com.tehasdf.sstable.input.SnappyCompressedSeekableDataStream
-import com.tehasdf.sstable.Row
-import org.apache.hadoop.io.MapWritable
-import java.io.InputStream
-import com.tehasdf.sstable.input.SeekableDataInputStream
 import com.tehasdf.mapreduce.load.CompressedSSTableSplit
-import com.tehasdf.sstable.input.InMemorySeekableDataStream
+import com.tehasdf.sstable.{DataReader, Row}
+import com.tehasdf.sstable.input.{InMemorySeekableDataStream, SeekableDataInputStream}
+
 import org.apache.commons.logging.LogFactory
+import org.apache.hadoop.io.{BytesWritable, MapWritable, Text}
+import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, TaskAttemptContext}
+
+import java.io.InputStream
 
 class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
   case class DataInput(reader: DataReader, seekable: SeekableDataInputStream, dataInputStream: InputStream)

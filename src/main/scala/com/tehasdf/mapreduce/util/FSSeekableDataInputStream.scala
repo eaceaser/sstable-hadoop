@@ -1,8 +1,8 @@
 package com.tehasdf.mapreduce.util
 
-import org.apache.hadoop.fs.FSDataInputStream
 import com.tehasdf.sstable.input.SeekableDataInputStreamProxy
-import org.apache.hadoop.fs.FileStatus
+
+import org.apache.hadoop.fs.{FSDataInputStream, FileStatus}
 
 class FSSeekableDataInputStream(is: FSDataInputStream, fs: FileStatus) extends SeekableDataInputStreamProxy(is) {
   def position = is.getPos()

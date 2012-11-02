@@ -1,21 +1,20 @@
 package com.tehasdf.mapreduce.load
 
+import com.tehasdf.mapreduce.util.FSSeekableDataInputStream
+import com.tehasdf.sstable.{CompressionInfoReader, IndexReader}
 import com.twitter.mapreduce.load.SSTableDataRecordReader
+
+import org.apache.commons.logging.LogFactory
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.{MapWritable, Text}
 import org.apache.hadoop.mapreduce.{InputSplit, JobContext, TaskAttemptContext}
-import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigFileInputFormat
-import scala.collection.JavaConversions._
-import org.apache.commons.logging.LogFactory
-import com.tehasdf.sstable.CompressionInfoReader
-import com.tehasdf.mapreduce.util.FSSeekableDataInputStream
-import com.tehasdf.sstable.IndexReader
-import java.util.TreeSet
-import java.util.ArrayList
-import org.apache.hadoop.mapreduce.lib.input.FileSplit
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
+import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigFileInputFormat
+
 import java.io.IOException
-import com.tehasdf.sstable.Key
+import java.util.ArrayList
+
+import scala.collection.JavaConversions.{asScalaBuffer, bufferAsJavaList}
 
 object SSTableDataInputFormat {
   def pathToCompressionInfo(path: String) = path.replaceAll("-Data\\.db$", "-CompressionInfo.db")

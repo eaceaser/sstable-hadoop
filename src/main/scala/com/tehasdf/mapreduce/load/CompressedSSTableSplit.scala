@@ -1,12 +1,19 @@
 package com.tehasdf.mapreduce.load
 
 import org.apache.hadoop.fs.Path
-import org.apache.hadoop.io.Writable
+import org.apache.hadoop.io.{Text, Writable}
 import org.apache.hadoop.mapreduce.InputSplit
-import java.io.{DataInput, DataOutput}
-import org.apache.hadoop.io.Text
 
-case class CompressedSSTableSplit(var path: Path, var start: Long, var length: Long, var firstKeyPosition: Long, var compressionOffsets: Seq[Long], var hosts: Array[String]) extends InputSplit with Writable {
+import java.io.{DataInput, DataOutput}
+
+// TODO: get rid of these public vars.
+case class CompressedSSTableSplit(
+    var path: Path,
+    var start: Long,
+    var length: Long,
+    var firstKeyPosition: Long,
+    var compressionOffsets: Seq[Long],
+    var hosts: Array[String]) extends InputSplit with Writable {
   def this() = this(null, 0L, 0L, 0L, null, null)
 
   def readFields(in: DataInput) {
