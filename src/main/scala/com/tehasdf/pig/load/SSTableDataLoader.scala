@@ -1,7 +1,6 @@
 package com.tehasdf.pig.load
 
 import com.tehasdf.mapreduce.load.SSTableDataInputFormat
-
 import org.apache.hadoop.io.{BytesWritable, MapWritable, Text}
 import org.apache.hadoop.mapreduce.{Job, RecordReader}
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
@@ -9,16 +8,18 @@ import org.apache.pig.{Expression, LoadFunc, LoadMetadata, ResourceSchema}
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit
 import org.apache.pig.data.{DataByteArray, Tuple, TupleFactory}
 import org.apache.pig.impl.util.Utils
+import com.tehasdf.mapreduce.util.BinaryConverter
+import org.apache.hadoop.io.Writable
 
 object SSTableDataLoader {
   private[SSTableDataLoader] val Schema = "key:chararray,columns:[]"
 }
 
-class SSTableDataLoader extends LoadFunc with LoadMetadata {
+abstract class SSTableDataLoader[Key <: Writable : BinaryConverter, ColumnName <: Writable : BinaryConverter, ColumnValue <: Writable : BinaryConverter] extends LoadFunc with LoadMetadata {
   private var reader: Option[RecordReader[Text, MapWritable]] = None
   private val fact = TupleFactory.getInstance()
 
-  def getInputFormat() = new SSTableDataInputFormat
+  def getInputFormat() = new SSTableDataInputFormat[Key, ColumnName, ColumnValue]
   def prepareToRead(r: RecordReader[_, _], split: PigSplit) {
     reader = Some(r.asInstanceOf[RecordReader[Text, MapWritable]])
   }

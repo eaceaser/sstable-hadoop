@@ -3,30 +3,29 @@ package com.tehasdf.mapreduce.load
 import com.tehasdf.mapreduce.util.FSSeekableDataInputStream
 import com.tehasdf.sstable.{CompressionInfoReader, IndexReader}
 import com.twitter.mapreduce.load.SSTableDataRecordReader
-
 import org.apache.commons.logging.LogFactory
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.{MapWritable, Text}
 import org.apache.hadoop.mapreduce.{InputSplit, JobContext, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigFileInputFormat
-
 import java.io.IOException
 import java.util.ArrayList
-
 import scala.collection.JavaConversions.{asScalaBuffer, bufferAsJavaList}
+import org.apache.hadoop.io.Writable
+import com.tehasdf.mapreduce.util.BinaryConverter
 
 object SSTableDataInputFormat {
   def pathToCompressionInfo(path: String) = path.replaceAll("-Data\\.db$", "-CompressionInfo.db")
   def pathToIndex(path: String) = path.replaceAll("-Data\\.db$", "-Index.db")
 
-  private[SSTableDataInputFormat] val Log = LogFactory.getLog(classOf[SSTableDataInputFormat])
+  private[SSTableDataInputFormat] val Log = LogFactory.getLog(classOf[SSTableDataInputFormat[_, _, _]])
 }
 
-class SSTableDataInputFormat extends PigFileInputFormat[Text, MapWritable] {
+class SSTableDataInputFormat[Key <: Writable : BinaryConverter, ColumnName <: Writable : BinaryConverter, ColumnValue <: Writable : BinaryConverter] extends PigFileInputFormat[Key, MapWritable] {
   import SSTableDataInputFormat._
 
-  def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader
+  def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader[Key, ColumnName, ColumnValue]
 
   override def isSplitable(context: JobContext, filename: Path) = true
 

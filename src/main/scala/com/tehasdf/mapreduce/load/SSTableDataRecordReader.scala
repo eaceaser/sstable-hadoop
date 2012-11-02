@@ -3,20 +3,23 @@ package com.twitter.mapreduce.load
 import com.tehasdf.mapreduce.load.CompressedSSTableSplit
 import com.tehasdf.sstable.{DataReader, Row}
 import com.tehasdf.sstable.input.{InMemorySeekableDataStream, SeekableDataInputStream}
-
 import org.apache.commons.logging.LogFactory
 import org.apache.hadoop.io.{BytesWritable, MapWritable, Text}
 import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, TaskAttemptContext}
-
 import java.io.InputStream
+import org.apache.hadoop.io.Writable
+import com.tehasdf.mapreduce.util.BinaryConverter
+import com.tehasdf.mapreduce.util.BinaryConverter
+import java.util.Map
 
-class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
+class SSTableDataRecordReader[Key <: Writable : BinaryConverter, ColumnName <: Writable : BinaryConverter, ColumnValue <: Writable : BinaryConverter] extends RecordReader[Key, MapWritable] {
   case class DataInput(reader: DataReader, seekable: SeekableDataInputStream, dataInputStream: InputStream)
 
   protected var reader: Option[DataInput] = None
   private var currentRow: Option[Row] = None
 
-  val Log = LogFactory.getLog(classOf[SSTableDataRecordReader])
+  val Log = LogFactory.getLog(classOf[SSTableDataRecordReader[Key, ColumnName, ColumnValue]])
+
   def initialize(genericSplit: InputSplit, context: TaskAttemptContext) {
     val file = genericSplit.asInstanceOf[CompressedSSTableSplit]
     val path = file.path
@@ -63,14 +66,16 @@ class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
     currentRow.map { row =>
       val rv = new MapWritable
       row.columns.foreach { column =>
-        rv.put(new BytesWritable(column.name), new BytesWritable(column.data))
+        val colName = implicitly[BinaryConverter[ColumnName]].convert(column.name)
+        val colData = implicitly[BinaryConverter[ColumnValue]].convert(column.data)
+        rv.put(colName, colData)
       }
       rv
     }.getOrElse(null)
   }
 
-  def getCurrentKey() = {
-    currentRow.map(r => new Text(r.key)).getOrElse(null)
+  def getCurrentKey(): Key = {
+    currentRow.map(r => implicitly[BinaryConverter[Key]].convert(r.key.getBytes())).getOrElse(null.asInstanceOf[Key])
   }
 
   def nextKeyValue() = {
