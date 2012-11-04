@@ -1,7 +1,6 @@
 package com.tehasdf.pig.load
 
 import com.tehasdf.mapreduce.load.SSTableDataInputFormat
-
 import org.apache.hadoop.io.{BytesWritable, MapWritable, Text}
 import org.apache.hadoop.mapreduce.{Job, RecordReader}
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
@@ -9,18 +8,19 @@ import org.apache.pig.{Expression, LoadFunc, LoadMetadata, ResourceSchema}
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigSplit
 import org.apache.pig.data.{DataByteArray, Tuple, TupleFactory}
 import org.apache.pig.impl.util.Utils
+import org.apache.pig.data.DefaultDataBag
 
 object SSTableDataLoader {
-  private[SSTableDataLoader] val Schema = "key:chararray,columns:[]"
+  private[SSTableDataLoader] val Schema = "key:bytearray,columns:{col:(name: bytearray, data: bytearray)}"
 }
 
 class SSTableDataLoader extends LoadFunc with LoadMetadata {
-  private var reader: Option[RecordReader[Text, MapWritable]] = None
+  private var reader: Option[RecordReader[BytesWritable, MapWritable]] = None
   private val fact = TupleFactory.getInstance()
 
   def getInputFormat() = new SSTableDataInputFormat
   def prepareToRead(r: RecordReader[_, _], split: PigSplit) {
-    reader = Some(r.asInstanceOf[RecordReader[Text, MapWritable]])
+    reader = Some(r.asInstanceOf[RecordReader[BytesWritable, MapWritable]])
   }
 
   def setLocation(loc: String, job: Job) {
@@ -32,19 +32,7 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
   def getPartitionKeys(k: String, j: Job) = null
   def getStatistics(k: String, j: Job) = null
 
-  def getSchema(f: String, j: Job) = {
-/*    val bagTuple = Array[Schema.FieldSchema](
-      new Schema.FieldSchema("name", DataType.BYTEARRAY),
-      new Schema.FieldSchema("value", DataType.BYTEARRAY))
-
-    val fields = Array[Schema.FieldSchema](
-      new Schema.FieldSchema("key", DataType.CHARARRAY),
-      new Schema.FieldSchema("columns", new Schema(new Schema.FieldSchema("t", new Schema(Arrays.asList(bagTuple: _*)), DataType.TUPLE)), DataType.BAG)
-    )
-
-    new ResourceSchema(new Schema(Arrays.asList(fields: _*))) */
-    new ResourceSchema(Utils.getSchemaFromString(SSTableDataLoader.Schema))
-  }
+  def getSchema(f: String, j: Job) = { new ResourceSchema(Utils.getSchemaFromString(SSTableDataLoader.Schema)) }
 
   def getNext(): Tuple = {
     reader.map { r =>
@@ -53,24 +41,28 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
           val key = r.getCurrentKey()
           val cols = r.getCurrentValue()
 
-          val rv = fact.newTuple()
-          rv.append(key.toString())
+          val rv = fact.newTuple(2)
+          rv.set(0, new DataByteArray(key.getBytes()));
 
           val keys = cols.keySet()
           val keysIt = keys.iterator()
-          val map = new java.util.HashMap[DataByteArray, DataByteArray]()
+
+          val bag = new DefaultDataBag
           while (keysIt.hasNext()) {
-            val colNameStr = keysIt.next()
-            val colName = new DataByteArray(colNameStr.asInstanceOf[BytesWritable].getBytes())
-            val colData = new DataByteArray(cols.get(colNameStr).asInstanceOf[BytesWritable].getBytes())
-            map.put(colName, colData)
+            val colNameBytes = keysIt.next()
+            val colName = new DataByteArray(colNameBytes.asInstanceOf[BytesWritable].getBytes())
+            val colData = new DataByteArray(cols.get(colNameBytes).asInstanceOf[BytesWritable].getBytes())
+            val tuple = fact.newTuple(2)
+            tuple.set(0, colName)
+            tuple.set(1, colData)
+            bag.add(tuple)
           }
-          rv.append(map)
+
+          rv.set(1, bag)
           rv
         case false =>
           null
       }
     }.getOrElse(null)
   }
-
 }

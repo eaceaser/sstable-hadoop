@@ -10,7 +10,7 @@ import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, TaskAttemptContext
 
 import java.io.InputStream
 
-class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
+class SSTableDataRecordReader extends RecordReader[BytesWritable, MapWritable] {
   case class DataInput(reader: DataReader, seekable: SeekableDataInputStream, dataInputStream: InputStream)
 
   protected var reader: Option[DataInput] = None
@@ -22,30 +22,12 @@ class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
     val path = file.path
     val dir = path.getParent()
 
-//    val compressionInfoFile = path.getName().replaceAll("-Data\\.db$", "-CompressionInfo.db")
-//    val compressionInfoPath = new Path(dir, compressionInfoFile)
-//    println("Reading compression info from file: %s".format(compressionInfoFile))
-
     val fs = path.getFileSystem(context.getConfiguration())
-
-//    if (!fs.exists(compressionInfoPath)) {
-//      throw new IOException("%s does not exist.".format(compressionInfoFile))
-//    }
 
     val dataIs = fs.open(path)
     val compressedBuf = new Array[Byte](file.getLength().toInt)
     dataIs.readFully(file.start, compressedBuf)
 
-//    val seekableDataFile = new SeekableDataInputStreamProxy(dataIs) {
-//      def position = dataIs.getPos()
-//      def seek(to: Long) = dataIs.seek(to)
-//      val length = fs.getFileStatus(path).getLen()
-//    }
-
-//    val compressionInfoIs = fs.open(compressionInfoPath)
-//    val compressionInfo = new CompressionInfoReader(compressionInfoIs)
-
-//    val compressedIs = new SnappyCompressedSeekableDataStream(seekableDataFile, compressionInfo)
     val seekable = InMemorySeekableDataStream.fromSnappyCompressedData(compressedBuf, file.compressionOffsets)
     seekable.seek(file.firstKeyPosition)
     reader = Some(DataInput(new DataReader(seekable), seekable, dataIs))
@@ -69,9 +51,7 @@ class SSTableDataRecordReader extends RecordReader[Text, MapWritable] {
     }.getOrElse(null)
   }
 
-  def getCurrentKey() = {
-    currentRow.map(r => new Text(r.key)).getOrElse(null)
-  }
+  def getCurrentKey() = currentRow.map(r => new BytesWritable(r.key)).getOrElse(null)
 
   def nextKeyValue() = {
     reader.map { data =>

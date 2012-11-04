@@ -3,18 +3,16 @@ package com.tehasdf.mapreduce.load
 import com.tehasdf.mapreduce.util.FSSeekableDataInputStream
 import com.tehasdf.sstable.{CompressionInfoReader, IndexReader}
 import com.twitter.mapreduce.load.SSTableDataRecordReader
-
 import org.apache.commons.logging.LogFactory
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.{MapWritable, Text}
 import org.apache.hadoop.mapreduce.{InputSplit, JobContext, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat
 import org.apache.pig.backend.hadoop.executionengine.mapReduceLayer.PigFileInputFormat
-
 import java.io.IOException
 import java.util.ArrayList
-
 import scala.collection.JavaConversions.{asScalaBuffer, bufferAsJavaList}
+import org.apache.hadoop.io.BytesWritable
 
 object SSTableDataInputFormat {
   def pathToCompressionInfo(path: String) = path.replaceAll("-Data\\.db$", "-CompressionInfo.db")
@@ -23,7 +21,7 @@ object SSTableDataInputFormat {
   private[SSTableDataInputFormat] val Log = LogFactory.getLog(classOf[SSTableDataInputFormat])
 }
 
-class SSTableDataInputFormat extends PigFileInputFormat[Text, MapWritable] {
+class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, MapWritable] {
   import SSTableDataInputFormat._
 
   def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader
