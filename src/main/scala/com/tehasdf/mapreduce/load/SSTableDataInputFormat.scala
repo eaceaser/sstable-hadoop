@@ -13,6 +13,7 @@ import java.io.IOException
 import java.util.ArrayList
 import scala.collection.JavaConversions.{asScalaBuffer, bufferAsJavaList}
 import org.apache.hadoop.io.BytesWritable
+import org.apache.hadoop.io.ArrayWritable
 
 object SSTableDataInputFormat {
   def pathToCompressionInfo(path: String) = path.replaceAll("-Data\\.db$", "-CompressionInfo.db")
@@ -21,7 +22,7 @@ object SSTableDataInputFormat {
   private[SSTableDataInputFormat] val Log = LogFactory.getLog(classOf[SSTableDataInputFormat])
 }
 
-class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, MapWritable] {
+class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWritable] {
   import SSTableDataInputFormat._
 
   def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader
