@@ -55,6 +55,7 @@ class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWrit
       val compressionInfo = new CompressionInfoReader(compressionInfoIs)
       val compressedChunks = compressionInfo.toList
 
+      Log.info("Computing splits for %s (index=%s,compressionInfo=%s)".format(file.toString(), indexFile.toString(), compressionInfoPath.toString()))
       val maxSplitSize = FileInputFormat.getMaxSplitSize(job)
 
       val indexIs = fs.open(indexPath)

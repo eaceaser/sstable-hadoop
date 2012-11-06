@@ -27,7 +27,7 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
   }
 
   def setLocation(loc: String, job: Job) {
-    FileInputFormat.setMaxInputSplitSize(job, 512*1024)
+    FileInputFormat.setMaxInputSplitSize(job, 16*1024*1024)
     FileInputFormat.setInputPaths(job, loc)
   }
 

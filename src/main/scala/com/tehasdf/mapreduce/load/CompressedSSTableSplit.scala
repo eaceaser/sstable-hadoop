@@ -3,8 +3,9 @@ package com.tehasdf.mapreduce.load
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.{Text, Writable}
 import org.apache.hadoop.mapreduce.InputSplit
-
 import java.io.{DataInput, DataOutput}
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 
 // TODO: get rid of these public vars.
 case class CompressedSSTableSplit(
@@ -41,4 +42,11 @@ case class CompressedSSTableSplit(
 
   def getLocations() = hosts
   def getLength() = length
+
+  def toBytes = {
+    val baos = new ByteArrayOutputStream
+    val dw =  new DataOutputStream(baos)
+    write(dw)
+    baos.toByteArray()
+  }
 }
