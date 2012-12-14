@@ -1,36 +1,34 @@
 package com.tehasdf.mapreduce.load
 
-import com.tehasdf.sstable.IndexReader
-import com.tehasdf.sstable.input.{SeekableDataInputStream, SeekableDataInputStreamProxy}
-
+import org.apache.commons.logging.LogFactory
 import org.apache.hadoop.fs.FSDataInputStream
 import org.apache.hadoop.io.{LongWritable, Text}
 import org.apache.hadoop.mapreduce.{InputSplit, RecordReader, TaskAttemptContext}
 import org.apache.hadoop.mapreduce.lib.input.FileSplit
 
-import java.io.IOException
+import com.tehasdf.mapreduce.util.FSSeekableDataInputStream
+import com.tehasdf.sstable.IndexReader
+import com.tehasdf.sstable.input.{BoundedSeekableDataInputStreamProxy, SeekableDataInputStream}
 
 case class IndexReaderStream(is: FSDataInputStream, seekable: SeekableDataInputStream, reader: IndexReader)
 
 class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
+  private val Log = LogFactory.getLog(this.getClass())
   protected var reader: Option[IndexReaderStream] = None
   protected var currentPair: Option[(Text, LongWritable)] = None
 
   def initialize(genericSplit: InputSplit, context: TaskAttemptContext) {
     val split = genericSplit.asInstanceOf[FileSplit]
 
-    val file = split.getPath;
+    val file = split.getPath
     val job = context.getConfiguration()
     val fs = file.getFileSystem(job)
-    val is = fs.open(split.getPath)
-    val seekable = new SeekableDataInputStreamProxy(is) {
-      def position = is.getPos()
-      def seek(to: Long) = is.seek(to)
-      val length = fs.getFileStatus(split.getPath).getLen()
-    }
-    val indexReader = new IndexReader(seekable)
-
-    reader = Some(IndexReaderStream(is, seekable, indexReader))
+    val is = fs.open(file)
+    val status = fs.getFileStatus(file)
+    val seekable = new FSSeekableDataInputStream(is, status)
+    val bounded = new BoundedSeekableDataInputStreamProxy(seekable, split.getStart(), split.getLength())
+    val indexReader = new IndexReader(bounded)
+    reader = Some(IndexReaderStream(is, bounded, indexReader))
   }
 
   def close() {
@@ -49,14 +47,12 @@ class SSTableIndexRecordReader extends RecordReader[Text, LongWritable] {
   def nextKeyValue(): Boolean = {
     reader.map { r =>
       if (r.reader.hasNext) {
-        try {
-          val key = r.reader.next()
-          currentPair = Some((new Text(key.name), new LongWritable(key.pos)))
-          true
-        } catch {
-          case ex: IOException => false
-        }
-      } else { false }
+        val key = r.reader.next()
+        currentPair = Some((new Text(key.name), new LongWritable(key.pos)))
+        true
+      } else { 
+        false 
+      }
     }.getOrElse(false)
   }
 }
