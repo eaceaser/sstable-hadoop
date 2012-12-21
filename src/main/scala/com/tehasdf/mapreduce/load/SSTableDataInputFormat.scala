@@ -1,6 +1,7 @@
 package com.tehasdf.mapreduce.load
 
 import com.tehasdf.mapreduce.util.FSSeekableDataInputStream
+import scala.collection.mutable
 import com.tehasdf.sstable.{CompressionInfoReader, IndexReader}
 import com.twitter.mapreduce.load.SSTableDataRecordReader
 import org.apache.commons.logging.LogFactory
@@ -14,102 +15,71 @@ import java.util.ArrayList
 import scala.collection.JavaConversions.{asScalaBuffer, bufferAsJavaList}
 import org.apache.hadoop.io.BytesWritable
 import org.apache.hadoop.io.ArrayWritable
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.apache.hadoop.mapreduce.lib.input.FileSplit
+import scala.collection.mutable.ArrayBuffer
+import org.apache.hadoop.io.Writable
+import java.io.DataInput
+import java.io.DataOutput
+import org.apache.hadoop.io.LongWritable
 
 object SSTableDataInputFormat {
   def pathToCompressionInfo(path: String) = path.replaceAll("-Data\\.db$", "-CompressionInfo.db")
   def pathToIndex(path: String) = path.replaceAll("-Data\\.db$", "-Index.db")
+  def pathToRootName(path: String) = path.stripSuffix("-Data.db")
 
   private[SSTableDataInputFormat] val Log = LogFactory.getLog(classOf[SSTableDataInputFormat])
 }
 
+
 class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWritable] {
   import SSTableDataInputFormat._
+  case class SplitRecord(byteStart: Long, byteLength: Long, innerOffset: Long, innerLength: Long)
 
   def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader
-
   override def isSplitable(context: JobContext, filename: Path) = true
 
-  override def getSplits(job: JobContext) = {
-    val files = listStatus(job)
-    val rv = new ArrayList[InputSplit]
-
-    files.foreach { fileStatus =>
-      val file = fileStatus.getPath()
-      val indexFile = SSTableDataInputFormat.pathToIndex(file.getName())
-      val compressionInfoFile = SSTableDataInputFormat.pathToCompressionInfo(file.getName())
-      val fs = file.getFileSystem(job.getConfiguration())
-      val blockLocations = fs.getFileBlockLocations(fileStatus, 0, fileStatus.getLen())
-
-      val indexPath = new Path(file.getParent(), indexFile)
-      val compressionInfoPath = new Path(file.getParent(), compressionInfoFile)
-
-      if (!fs.exists(indexPath)) {
-        throw new IOException("index file %s does not exist".format(indexPath.toString()))
-      }
-
-      if (!fs.exists(compressionInfoPath)) {
-        throw new IOException("compression info file %s does not exist".format(compressionInfoPath.toString()))
-      }
-
-      val compressionInfoIs = fs.open(compressionInfoPath)
-      val compressionInfo = new CompressionInfoReader(compressionInfoIs)
-      val compressedChunks = compressionInfo.toList
-
-      Log.info("Computing splits for %s (index=%s,compressionInfo=%s)".format(file.toString(), indexFile.toString(), compressionInfoPath.toString()))
-      val maxSplitSize = FileInputFormat.getMaxSplitSize(job)
-
-      val indexIs = fs.open(indexPath)
-      val seekableIndex = new FSSeekableDataInputStream(indexIs, fs.getFileStatus(indexPath))
-      val index = new IndexReader(seekableIndex)
-
-      var chunkOffsetPos = -1L
-      var previousPos = -1L
-      val currentChunkOffsets = new ArrayList[Long]
-      currentChunkOffsets.append(compressedChunks.head)
-
-      index.foreach { key =>
-        val pos = key.pos
-        if (previousPos == -1L) previousPos = pos
-        if (chunkOffsetPos == -1L) chunkOffsetPos = pos
-        val chunkIndex = (pos / compressionInfo.chunkLength).toInt
-        val closestChunkOffset = compressedChunks(chunkIndex)
-
-        if (closestChunkOffset != currentChunkOffsets.last) {
-          val currentSplitSize = closestChunkOffset - currentChunkOffsets.head
-
-          if (currentSplitSize > maxSplitSize) {
-            val split = new CompressedSSTableSplit(
-                path=file,
-                start=currentChunkOffsets.head,
-                length=currentSplitSize,
-                firstKeyPosition=chunkOffsetPos % compressionInfo.chunkLength,
-                compressionOffsets=currentChunkOffsets.map(_-currentChunkOffsets.head).toSeq,
-                hosts=blockLocations(0).getHosts())
-            rv.add(split)
-            val lastChunk = currentChunkOffsets.last
-            chunkOffsetPos = previousPos
-            currentChunkOffsets.clear()
-            currentChunkOffsets.append(lastChunk)
-            currentChunkOffsets.append(closestChunkOffset)
-            Log.debug("Added split: %s".format(split))
-          } else {
-            currentChunkOffsets.append(closestChunkOffset)
-          }
+  private def readSplitData(root: Path, job: JobContext) = {
+    val rv = new mutable.HashMap[String, mutable.Buffer[SplitRecord]]
+    val conf = job.getConfiguration()
+    val fs = root.getFileSystem(conf)
+    val pattern = new Path(root, "part-*")
+    fs.globStatus(pattern).foreach { status => 
+      val is = fs.open(status.getPath())
+      val buf = new BufferedReader(new InputStreamReader(is))
+      var line = buf.readLine()
+      while (line != null) {
+        line.split('\t').toList match {
+          case filename :: index:: byteStart :: byteLength :: innerOffset :: innerLength :: Nil =>
+            val rec = SplitRecord(byteStart.toLong, byteLength.toLong, innerOffset.toLong, innerLength.toLong)
+            rv.getOrElseUpdate(filename, new ArrayBuffer[SplitRecord]).+=(rec)
+          case _ =>
+            throw new IOException("omg")
         }
-        previousPos = key.pos
+        
+        line = buf.readLine()
       }
-
-      val finalSplitSize = fileStatus.getLen() - currentChunkOffsets.head
-      val split = new CompressedSSTableSplit(
-          path = file,
-          start = currentChunkOffsets.head,
-          length = finalSplitSize,
-          firstKeyPosition = chunkOffsetPos % compressionInfo.chunkLength,
-          compressionOffsets = currentChunkOffsets.map(_-currentChunkOffsets.head).toSeq,
-          hosts=blockLocations(0).getHosts())
-      rv.add(split)
+      is.close()
     }
-
+    rv
+  }
+  
+  override def getSplits(job: JobContext) = {
+    val conf = job.getConfiguration()
+    val splitDir = new Path(conf.get("sstable.split.dir"))
+    val splits = readSplitData(splitDir, job)
+    val rv = new ArrayList[InputSplit]
+    val statuses = listStatus(job).foreach { status =>
+      val filename = status.getPath().getName
+      val fs = status.getPath().getFileSystem(conf)
+      val rootName = pathToRootName(filename)
+      val fileSplits = splits(rootName)
+      fileSplits.map { split => 
+        val locations = fs.getFileBlockLocations(status, split.byteStart, split.byteLength).map(_.toString)
+        rv += new SSTableDataSplit(status.getPath(), split.byteStart, split.byteLength, split.innerOffset, split.innerLength, locations)
+      }
+    }
     rv
   }
 

@@ -6,47 +6,35 @@ import org.apache.hadoop.mapreduce.InputSplit
 import java.io.{DataInput, DataOutput}
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import org.apache.hadoop.io.LongWritable
 
-// TODO: get rid of these public vars.
-case class CompressedSSTableSplit(
-    var path: Path,
-    var start: Long,
-    var length: Long,
-    var firstKeyPosition: Long,
-    var compressionOffsets: Seq[Long],
-    var hosts: Array[String]) extends InputSplit with Writable {
-  def this() = this(null, 0L, 0L, 0L, null, null)
-
+case class SSTableDataSplit(var path: Path, var fileOffset: LongWritable, var fileLength: LongWritable, var innerOffset: LongWritable, var innerLength: LongWritable, var hosts: Array[String]) extends InputSplit with Writable {
+  def this(p: Path, fo: Long, fl: Long, ino: Long, il: Long, h: Array[String]) = this(p, new LongWritable(fo), new LongWritable(fl), new LongWritable(ino), new LongWritable(il), h)
+  def this() = this(null, null, null, null, null, null)
+  def getLength() = fileLength.get
+  def getLocations = hosts
+  
   def readFields(in: DataInput) {
     path = new Path(Text.readString(in))
-    start = in.readLong()
-    length = in.readLong()
-    firstKeyPosition = in.readLong()
-    val compressionOffsetsLength = in.readInt()
-    val offsets = new Array[Long](compressionOffsetsLength)
-    for ( i <- 0 until compressionOffsetsLength) {
-      offsets(i) = in.readLong()
-    }
-
-    compressionOffsets = offsets.toSeq
+    val fo = new LongWritable
+    fo.readFields(in)
+    fileOffset = fo
+    val fl = new LongWritable
+    fl.readFields(in)
+    fileLength = fl
+    val os = new LongWritable
+    os.readFields(in)
+    innerOffset = os
+    val il = new LongWritable
+    il.readFields(in)
+    innerLength = il
   }
-
+  
   def write(out: DataOutput) {
     Text.writeString(out, path.toString())
-    out.writeLong(start)
-    out.writeLong(length)
-    out.writeLong(firstKeyPosition)
-    out.writeInt(compressionOffsets.size)
-    compressionOffsets.foreach { out.writeLong(_) }
-  }
-
-  def getLocations() = hosts
-  def getLength() = length
-
-  def toBytes = {
-    val baos = new ByteArrayOutputStream
-    val dw =  new DataOutputStream(baos)
-    write(dw)
-    baos.toByteArray()
+    fileOffset.write(out)
+    fileLength.write(out)
+    innerOffset.write(out)
+    innerLength.write(out)
   }
 }
