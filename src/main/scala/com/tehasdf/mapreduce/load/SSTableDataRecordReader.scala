@@ -14,8 +14,11 @@ import java.util.ArrayList
 import com.tehasdf.mapreduce.data.ColumnState
 import com.tehasdf.sstable.Deleted
 import com.tehasdf.mapreduce.load.SSTableDataSplit
-import org.xerial.snappy.Snappy
 import java.util.Arrays
+import com.tehasdf.sstable.input.SnappyCompressedSeekableDataStream
+import com.tehasdf.sstable.SequenceBackedCompressionInfo
+import org.apache.hadoop.io.LongWritable
+import java.io.ByteArrayInputStream
 
 
 class SSTableDataRecordReader extends RecordReader[BytesWritable, ArrayWritable] {
@@ -32,16 +35,23 @@ class SSTableDataRecordReader extends RecordReader[BytesWritable, ArrayWritable]
       val dir = path.getParent()
       val fs = path.getFileSystem(context.getConfiguration())
       val dataIs = fs.open(path)
-      dataIs.seek(file.fileOffset.get)
-      val compressedBuf = new Array[Byte](file.fileLength.get.toInt - 4)
-      dataIs.readFully(compressedBuf)
-      val uncompressed = Snappy.uncompress(compressedBuf)
-      val cp = Arrays.copyOfRange(uncompressed, file.innerOffset.get.toInt, file.innerOffset.get.toInt+file.innerLength.get.toInt)
       
-      val seekable = new InMemorySeekableDataStream(cp)
-      reader = Some(DataInput(new DataReader(seekable), seekable, dataIs))
+      dataIs.seek(file.fileOffset.get)
+      val compressedBuf = new Array[Byte](file.fileLength.get.toInt)
+      dataIs.readFully(compressedBuf)
+      val seekable = new InMemorySeekableDataStream(compressedBuf)
+      val offsettedChunks = file.compressionChunks.get().map(_.asInstanceOf[LongWritable].get()).map(_-file.fileOffset.get())
+      
+      val cinfo = new SequenceBackedCompressionInfo(file.uncompressedLength.get(), offsettedChunks)
+      val ds = new SnappyCompressedSeekableDataStream(seekable, cinfo)
+      val decompressed = ds.decompressEntireStream
+      
+      val seekableDecompressed = new InMemorySeekableDataStream(decompressed)
+      seekableDecompressed.seek(file.innerOffset.get)
+      
+      reader = Some(DataInput(new DataReader(seekableDecompressed), seekableDecompressed, dataIs))
     } catch { 
-      case ex: Throwable => println(ex); throw ex;
+      case ex: Throwable => ex.printStackTrace(); throw ex;
     }
   }
 
@@ -86,6 +96,6 @@ class SSTableDataRecordReader extends RecordReader[BytesWritable, ArrayWritable]
       }
     }.getOrElse(false)
   } catch {
-    case ex: Throwable => ex.printStackTrace(); throw ex
+    case ex: Throwable => ex.printStackTrace(); false
   }
 }

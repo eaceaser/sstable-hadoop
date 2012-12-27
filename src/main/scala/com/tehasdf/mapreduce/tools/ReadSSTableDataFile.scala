@@ -20,7 +20,9 @@ object ReadSSTableDataFile {
   class StupidMapper extends Mapper[BytesWritable, ArrayWritable, Text, Text] with Mappers[BytesWritable, ArrayWritable, Text, Text] {
     override def map(key: BytesWritable, value: ArrayWritable, context: Context) {
       try {
-        println("SUP: %s %s".format(key, value))
+        val str = new String(key.getBytes(), "UTF-8")
+        val blah = value.toStrings().toList
+        context.write(new Text(str), new Text(blah.toString))
       } catch {
         case ex: Throwable => println(ex); throw ex
       }
@@ -38,6 +40,8 @@ object ReadSSTableDataFile {
     job.setJarByClass(this.getClass())
     job.setInputFormatClass(classOf[SSTableDataInputFormat])
     job.setMapperClass(classOf[StupidMapper])
+    job.setMapOutputKeyClass(classOf[Text])
+    job.setMapOutputValueClass(classOf[Text])
     FileInputFormat.setInputPaths(job, inputPath)
     FileOutputFormat.setOutputPath(job, new Path(args(1)))
     System.exit(if (job.waitForCompletion(true)) 0 else 1)

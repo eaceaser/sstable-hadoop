@@ -32,10 +32,9 @@ object SSTableDataInputFormat {
   private[SSTableDataInputFormat] val Log = LogFactory.getLog(classOf[SSTableDataInputFormat])
 }
 
-
 class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWritable] {
   import SSTableDataInputFormat._
-  case class SplitRecord(byteStart: Long, byteLength: Long, innerOffset: Long, innerLength: Long)
+  case class SplitRecord(byteStart: Long, byteLength: Long, innerOffset: Long, innerLength: Long, uncompressedLength: Long, chunks: Seq[Long])
 
   def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader
   override def isSplitable(context: JobContext, filename: Path) = true
@@ -51,11 +50,12 @@ class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWrit
       var line = buf.readLine()
       while (line != null) {
         line.split('\t').toList match {
-          case filename :: index:: byteStart :: byteLength :: innerOffset :: innerLength :: Nil =>
-            val rec = SplitRecord(byteStart.toLong, byteLength.toLong, innerOffset.toLong, innerLength.toLong)
+          case filename :: index:: byteStart :: byteLength :: innerOffset :: innerLength :: uncompressedLength :: compressionChunks :: Nil =>
+            val chunks = compressionChunks.split(",").map(_.toLong)
+            val rec = SplitRecord(byteStart.toLong, byteLength.toLong, innerOffset.toLong, innerLength.toLong, uncompressedLength.toLong, chunks)
             rv.getOrElseUpdate(filename, new ArrayBuffer[SplitRecord]).+=(rec)
           case _ =>
-            throw new IOException("omg")
+            throw new IOException("omg: %s".format(line))
         }
         
         line = buf.readLine()
@@ -77,7 +77,7 @@ class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWrit
       val fileSplits = splits(rootName)
       fileSplits.map { split => 
         val locations = fs.getFileBlockLocations(status, split.byteStart, split.byteLength).map(_.toString)
-        rv += new SSTableDataSplit(status.getPath(), split.byteStart, split.byteLength, split.innerOffset, split.innerLength, locations)
+        rv += new SSTableDataSplit(status.getPath(), split.byteStart, split.byteLength, split.innerOffset, split.innerLength, split.uncompressedLength, split.chunks.toArray, locations)
       }
     }
     rv
