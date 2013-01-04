@@ -38,10 +38,12 @@ class SSTableDataRecordReader extends RecordReader[BytesWritable, ArrayWritable]
       
       dataIs.seek(file.fileOffset.get)
       val compressedBuf = new Array[Byte](file.fileLength.get.toInt)
+      Log.info("Reading file: %s (%d)".format(file.path.getName(), file.fileLength.get.toLong))
       dataIs.readFully(compressedBuf)
       val seekable = new InMemorySeekableDataStream(compressedBuf)
       val offsettedChunks = file.compressionChunks.get().map(_.asInstanceOf[LongWritable].get()).map(_-file.fileOffset.get())
       
+      Log.info("Attempting to decompress chunk of size: %d with %d compression chunks".format(seekable.length, offsettedChunks.size))
       val cinfo = new SequenceBackedCompressionInfo(file.uncompressedLength.get(), offsettedChunks)
       val ds = new SnappyCompressedSeekableDataStream(seekable, cinfo)
       val decompressed = ds.decompressEntireStream
@@ -68,10 +70,10 @@ class SSTableDataRecordReader extends RecordReader[BytesWritable, ArrayWritable]
       val arr = new ArrayList[Writable]()
       row.columns.foreach { column =>
         column match {
-          case Column(name, data) =>
-            arr.add(WritableColumn(ColumnState.Normal, new BytesWritable(name), new BytesWritable(data)))
-          case Deleted(name) =>
-            arr.add(WritableColumn.deleted(new BytesWritable(name)))
+          case Column(name, data, timestamp) =>
+            arr.add(WritableColumn(ColumnState.Normal, new BytesWritable(name), new BytesWritable(data), new LongWritable(timestamp)))
+          case Deleted(name, timestamp) =>
+            arr.add(WritableColumn.deleted(new BytesWritable(name), new LongWritable(timestamp)))
         }
       }
       val rv = new ArrayWritable(classOf[Writable])

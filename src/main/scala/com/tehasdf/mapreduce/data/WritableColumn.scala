@@ -4,45 +4,59 @@ import org.apache.hadoop.io.BytesWritable
 import org.apache.hadoop.io.Writable
 import java.io.DataInput
 import java.io.DataOutput
+import org.apache.hadoop.io.LongWritable
+import org.apache.hadoop.io.WritableComparable
 
 object ColumnState extends Enumeration {
   val Normal, Deleted = Value
 }
 
 object WritableColumn {
-  def deleted(name: BytesWritable) = WritableColumn(ColumnState.Deleted, name, null)
+  def deleted(name: BytesWritable, timestamp: LongWritable) = WritableColumn(ColumnState.Deleted, name, null, timestamp)
 }
 
-case class WritableColumn(var state: ColumnState.Value, var name: BytesWritable, var data: BytesWritable) extends Writable {
-  def this() = this(null, null, null)
+case class WritableColumn(var state: ColumnState.Value, var name: BytesWritable, var data: BytesWritable, var timestamp: LongWritable) extends WritableComparable[WritableColumn] {
+  def this() = this(null, null, null, null)
 
   def readFields(in: DataInput) {
     state = ColumnState(in.readInt())
-    val nameLength = in.readInt()
-    val nameBuf = new Array[Byte](nameLength)
-    in.readFully(nameBuf)
-    name = new BytesWritable(nameBuf)
-
+    val n = new BytesWritable
+    n.readFields(in)
+    name = n
+    
     state match {
       case ColumnState.Normal =>
-        val dataLength = in.readInt()
-        val dataBuf = new Array[Byte](dataLength)
-        in.readFully(dataBuf)
-        data = new BytesWritable(dataBuf)
+        val d = new BytesWritable
+        d.readFields(in)
+        data = d
       case ColumnState.Deleted =>
     }
+    
+    val ts = new LongWritable
+    ts.readFields(in)
+    timestamp = ts
   }
 
   def write(out: DataOutput) {
     out.writeInt(state.id)
-    out.writeInt(name.getLength())
-    out.write(name.getBytes())
+    name.write(out)
 
     state match {
       case ColumnState.Normal =>
-        out.writeInt(data.getLength())
-        out.write(data.getBytes())
+        data.write(out)
       case ColumnState.Deleted =>
+    }
+    timestamp.write(out)
+  }
+  
+  def compareTo(other: WritableColumn) = {
+    timestamp.compareTo(other.timestamp)
+  }
+  
+  override def toString() = {
+    state match {
+      case ColumnState.Normal => "Column("+name+","+data+","+timestamp+")"
+      case ColumnState.Deleted => "Deleted("+name+")"
     }
   }
 }
