@@ -32,7 +32,7 @@ object GenerateSSTableDataSplits {
     type Context = Reducer[KEYIN, VALUEIN, KEYOUT, VALUEOUT]#Context
   }
   
-  case class ChunkIndex(var file: Text, var index: LongWritable, var rootPosition: LongWritable, var chunkLength: LongWritable, var totalUncompressedSize: LongWritable, var compressionPositions: Array[Long]) extends WritableComparable[ChunkIndex] {
+/*  case class ChunkIndex(var file: Text, var index: LongWritable, var rootPosition: LongWritable, var chunkLength: LongWritable, var totalUncompressedSize: LongWritable, var compressionPositions: Array[Long]) extends WritableComparable[ChunkIndex] {
     def this() = this(null, null, null, null, null, null)
     def this(f: String, i: Long, r: Long, len: Long, unc: Long, pos: Array[Long]) = this(new Text(f), new LongWritable(i), new LongWritable(r), new LongWritable(len), new LongWritable(unc), pos)
     
@@ -76,6 +76,33 @@ object GenerateSSTableDataSplits {
       aw.set(compressionPositions.map(new LongWritable(_)))
       aw.write(out)
     }
+  } */
+  
+  case class ChunkIndex(var file: Text, var index: LongWritable) extends WritableComparable[ChunkIndex] {
+    def this() = this(null, null)
+    def this(f: String, i: Long) = this(new Text(f), new LongWritable(i))
+    
+    def compareTo(other: ChunkIndex) = {
+      val cmp = file.compareTo(other.file)
+      if (cmp == 0)
+        index.compareTo(other.index)
+      else
+        cmp
+    }
+    
+    def readFields(in: DataInput) {
+      val t = new Text
+      t.readFields(in)
+      val i = new LongWritable()
+      i.readFields(in)
+      file = t
+      index = i 
+    }
+    
+    def write(out: DataOutput) {
+      file.write(out)
+      index.write(out)
+    }
   }
   
   class IndexMapper extends Mapper[Text, LongWritable, ChunkIndex, LongWritable] with Mappers[Text, LongWritable, ChunkIndex, LongWritable] {
@@ -86,23 +113,25 @@ object GenerateSSTableDataSplits {
     private var splits: Array[Array[Long]] = null
     private var splitName: String = null
     private var splitLength: Long = 0L
+    private var chunkLength: Long = 0L
+    private var compressedFileSize: Long = 0L
+    private var uncompressedFileSize: Long = 0L
     
     protected override def setup(context: Context): Unit = try {
+      val conf = context.getConfiguration()
       val split = context.getInputSplit().asInstanceOf[FileSplit]
       val indexName = split.getPath().getName()
       val rootName = indexName.stripSuffix("-Index.db")
       splitName = rootName
-      val chunkKey = "sstable.%s.chunk.length".format(rootName)
-      val compressedFileSizeKey = "sstable.%s.file.length".format(rootName)
-      val chunkPositionsKey = "sstable.%s.chunk.positions".format(rootName)
-      val conf = context.getConfiguration()
-      chunkPositions = conf.get(chunkPositionsKey).split(",").map(_.toLong)
-      val chunkLength = conf.getLong(chunkKey, 0L)
+      val cInfoPathKey = rootName+"-CompressionInfo.db"
+      val cInfoPath = new Path(split.getPath().getParent(), cInfoPathKey)
+      val fs = cInfoPath.getFileSystem(conf)
+      val is = fs.open(cInfoPath)
+      val reader = new CompressionInfoReader(is)
+      chunkLength = reader.chunkLength
       val maxSplitSize = conf.getLong("sstable.max.split.size", 0L)
       val chunksPerSplit = maxSplitSize / chunkLength
-      
       splitLength = (chunksPerSplit * chunkLength)
-      splits = chunkPositions.sliding(chunksPerSplit.toInt, chunksPerSplit.toInt).toArray
     } catch {
       case ex: Throwable => ex.printStackTrace(); throw ex
     }
@@ -112,28 +141,13 @@ object GenerateSSTableDataSplits {
       val indexName = split.getPath().getName()
       val rootName = indexName.stripSuffix("-Index.db")
       if (rootName != splitName) throw new IOException("Mapper was not reinstntiated with new split?")
-      val chunkKey = "sstable.%s.chunk.length".format(rootName)
-      val uncompressedFileSizeKey = "sstable.%s.uncompressed.length".format(rootName)
-      val compressedFileSizeKey = "sstable.%s.compressed.length".format(rootName)
-      val conf = context.getConfiguration()
-      val chunkLength = context.getConfiguration().getLong(chunkKey, 0L)
-      val uncompressedFileSize = conf.getLong(uncompressedFileSizeKey, 0L)
-      val compressedFileSize = conf.getLong(compressedFileSizeKey, 0L)
+      
       if (chunkLength == 0L) throw new IOException("Could not find compressionInfo for %s.".format(rootName))
       
       val splitIndex = value.get() / splitLength
-      val splitChunks = splits(splitIndex.toInt)
-      
-      val rawSplitPosition = splitChunks.head.toInt
-      val rawNextSplitPosition = splits.lift(splitIndex.toInt+1).map(_.head).getOrElse(compressedFileSize)
       val offset = (value.get() - (splitIndex * splitLength))
-      val totalUncompressedSize = if (splitIndex.toInt+1 == splits.length) {
-        uncompressedFileSize - (splitIndex*splitLength)
-      } else {
-        splitChunks.length * chunkLength
-      }
       try {
-        context.write(new ChunkIndex(rootName, splitIndex, rawSplitPosition, rawNextSplitPosition-rawSplitPosition, totalUncompressedSize, splitChunks), new LongWritable(offset))
+        context.write(new ChunkIndex(rootName, splitIndex), new LongWritable(offset))
       } catch {
         case ex: Exception => println("huh????: %s".format(ex)); throw ex
       }
@@ -141,12 +155,48 @@ object GenerateSSTableDataSplits {
   }
 
   class DataSplitReducer extends Reducer[ChunkIndex, LongWritable, Text, Text] with Reducers[ChunkIndex, LongWritable, Text, Text]{
-    private var output: MultipleOutputs[Text, Text] = null
-    override def setup(context: Context) {
-      output = new MultipleOutputs(context)
-    }
+    private val Log = LogFactory.getLog(this.getClass())
     
     protected override def reduce(key: ChunkIndex, vals: JavaIterable[LongWritable], context: Context) {
+      val conf = context.getConfiguration()
+      Log.info("Handling: %s".format(key.toString))
+      
+      val compressionInfoPathKey = "sstable.%s.chunk.file".format(key.file)
+      val compressionInfoPath = new Path(conf.get(compressionInfoPathKey))
+      Log.info("Read compression info path: %s".format(compressionInfoPath.toString))
+      val compressedDataPathKey = "sstable.%s.data.file".format(key.file)
+      val compressedDataPath = conf.get(compressedDataPathKey)
+      val dataPath = new Path(compressedDataPath)
+      Log.info("Read data path: %s".format(dataPath.toString))
+      
+      val fs = compressionInfoPath.getFileSystem(conf)
+      val is = fs.open(compressionInfoPath)
+      val reader = new CompressionInfoReader(is)
+      val dataStatus = fs.getFileStatus(dataPath)
+      
+      val compressedFileSize = dataStatus.getLen()
+      Log.info("Read compressed file size of: %s".format(compressedFileSize))
+      val chunkPositions = reader.toArray
+      Log.info("Read %d chunk positions from compression info".format(chunkPositions.length))
+      val maxSplitSize = conf.getLong("sstable.max.split.size", 0L)
+      
+      val chunksPerSplit = maxSplitSize / reader.chunkLength
+      Log.info("Calculated %s chunks per split from a max split size of %s and a chunk length of %s".format(chunksPerSplit, maxSplitSize, reader.chunkLength))
+      
+      val splits = chunkPositions.sliding(chunksPerSplit.toInt, chunksPerSplit.toInt).toArray
+      
+      Log.info("Calculated %s splits total".format(splits.length))
+      val splitChunks = splits.lift(key.index.get.toInt).getOrElse(Array(chunkPositions.last))
+      val rawSplitPosition = splitChunks.head
+      
+      val rawNextSplitPosition = splits.lift(key.index.get.toInt+1).map(_.head).getOrElse(compressedFileSize)
+      val length = rawNextSplitPosition - rawSplitPosition
+      
+      val uncompressedSize = if (key.index.get+1 == splits.length)
+        reader.dataLength - (key.index.get*reader.chunkLength)
+      else
+        splitChunks.length * reader.chunkLength
+      
       val it = vals.iterator()
       val stuff = new mutable.ArrayBuffer[Long]()
       while (it.hasNext()) {
@@ -154,23 +204,19 @@ object GenerateSSTableDataSplits {
         stuff.append(nextValue.get())
       }
       val sorted = stuff.sorted
-      context.write(new Text("%s\t%s".format(key.file.toString, key.index.toString)), new Text("%d\t%d\t%d\t%d\t%d\t%s".format(key.rootPosition.get, key.chunkLength.get, sorted.head, sorted.last-sorted.head, key.totalUncompressedSize.get(), key.compressionPositions.mkString(","))))
+      context.write(new Text("%s\t%s".format(key.file.toString, key.index.toString)), new Text("%d\t%d\t%d\t%d\t%d\t%s".format(rawSplitPosition, length, sorted.head, sorted.last-sorted.head, uncompressedSize, splitChunks.mkString(","))))
     }
   }
   
   def computeCompressionInfo(file: Path, conf: Configuration) {
     val fname = file.getName().stripSuffix("-CompressionInfo.db")
     val fs = file.getFileSystem(conf)
-    val is = fs.open(file)
-    val reader = new CompressionInfoReader(is)
-    Log.info("Setting compression info for %s: %s".format(fname, reader.chunkLength))
-    conf.setLong("sstable.%s.chunk.length".format(fname), reader.chunkLength)
-    conf.setLong("sstable.%s.uncompressed.length".format(fname), reader.dataLength)
-    val dataStatus = fs.getFileStatus(new Path(file.getParent(), fname+"-Data.db"))
-    conf.setLong("sstable.%s.compressed.length".format(fname), dataStatus.getLen())
     
-    val chunkArray = reader.toArray
-    conf.set("sstable.%s.chunk.positions".format(fname), chunkArray.mkString(","))
+    Log.debug("Recording chunk file for %s: %s".format(fname, file.toString))
+    conf.set("sstable.%s.chunk.file".format(fname), file.toString)
+    val dataPath = new Path(file.getParent, fname+"-Data.db")
+    Log.debug("Recording data file for %s: %s".format(fname, dataPath.toString))
+    conf.set("sstable.%s.data.file".format(fname), dataPath.toString) 
   }
   
   def crawlForCompressionInfo(root: Path, conf: Configuration) {
@@ -183,9 +229,10 @@ object GenerateSSTableDataSplits {
   def main(rawArgs: Array[String]) {
     val conf = new Configuration
     conf.setInt("mapreduce.job.max.split.locations", 150)
-    conf.setLong("sstable.max.split.size", 25*1024*1024)
+    conf.setLong("sstable.max.split.size", 256*1024*1024)
     val args = new GenericOptionsParser(conf, rawArgs).getRemainingArgs()
     val inputPath = new Path(args(0))
+    conf.set("mapreduce.index.splits.dir", args(2))
     crawlForCompressionInfo(inputPath, conf)
 
     val job = new Job(conf)
@@ -198,12 +245,12 @@ object GenerateSSTableDataSplits {
     job.setOutputValueClass(classOf[Text])
     job.setReducerClass(classOf[DataSplitReducer])
     job.setInputFormatClass(classOf[SSTableIndexInputFormat])
-    job.setNumReduceTasks(128)
+    job.setNumReduceTasks(512)
     job.setOutputFormatClass(classOf[TextOutputFormat[_,_]])
     
     FileInputFormat.setInputPaths(job, inputPath)
     FileOutputFormat.setOutputPath(job, new Path(args(1)))
-    FileInputFormat.setMaxInputSplitSize(job, 10L*1024*1024)
+    FileInputFormat.setMaxInputSplitSize(job, 256*1024*1024)
     System.exit(if (job.waitForCompletion(true)) 0 else 1)
   }
 }

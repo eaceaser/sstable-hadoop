@@ -34,11 +34,12 @@ object SSTableDataInputFormat {
 
 class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWritable] {
   import SSTableDataInputFormat._
-  case class SplitRecord(byteStart: Long, byteLength: Long, innerOffset: Long, innerLength: Long, uncompressedLength: Long, chunks: Seq[Long])
+  case class SplitRecord(byteStart: Long, byteLength: Long)
 
   def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableDataRecordReader
+  
   override def isSplitable(context: JobContext, filename: Path) = true
-
+  
   private def readSplitData(root: Path, job: JobContext) = {
     val rv = new mutable.HashMap[String, mutable.Buffer[SplitRecord]]
     val conf = job.getConfiguration()
@@ -51,8 +52,7 @@ class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWrit
       while (line != null) {
         line.split('\t').toList match {
           case filename :: index:: byteStart :: byteLength :: innerOffset :: innerLength :: uncompressedLength :: compressionChunks :: Nil =>
-            val chunks = compressionChunks.split(",").map(_.toLong)
-            val rec = SplitRecord(byteStart.toLong, byteLength.toLong, innerOffset.toLong, innerLength.toLong, uncompressedLength.toLong, chunks)
+            val rec = SplitRecord(byteStart.toLong, byteLength.toLong)
             rv.getOrElseUpdate(filename, new ArrayBuffer[SplitRecord]).+=(rec)
           case _ =>
             throw new IOException("omg: %s".format(line))
@@ -76,8 +76,8 @@ class SSTableDataInputFormat extends PigFileInputFormat[BytesWritable, ArrayWrit
       val rootName = pathToRootName(filename)
       val fileSplits = splits(rootName)
       fileSplits.map { split => 
-        val locations = fs.getFileBlockLocations(status, split.byteStart, split.byteLength).map(_.toString)
-        rv += new SSTableDataSplit(status.getPath(), split.byteStart, split.byteLength, split.innerOffset, split.innerLength, split.uncompressedLength, split.chunks.toArray, locations)
+        val locations = fs.getFileBlockLocations(status, split.byteStart, split.byteLength).flatMap(_.getHosts())
+        rv += new FileSplit(status.getPath(), split.byteStart, split.byteLength, locations)
       }
     }
     rv

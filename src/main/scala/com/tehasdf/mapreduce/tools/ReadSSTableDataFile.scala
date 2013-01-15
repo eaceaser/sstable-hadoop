@@ -60,9 +60,9 @@ object ReadSSTableDataFile {
   
   def main(rawArgs: Array[String]) {
     val conf = new Configuration
-    conf.set("sstable.split.dir", "/user/eac/test-out")
     val args = new GenericOptionsParser(conf, rawArgs).getRemainingArgs()
     val inputPath = new Path(args(0))
+    conf.set("sstable.split.dir", args(2))
     
     val job = new Job(conf)
     job.setJobName("Read SSTable Data File")
@@ -70,6 +70,7 @@ object ReadSSTableDataFile {
     job.setInputFormatClass(classOf[SSTableDataInputFormat])
     job.setMapperClass(classOf[SSTableDataMapper])
     job.setReducerClass(classOf[SSTableDataReducer])
+    job.setNumReduceTasks(512)
     job.setMapOutputKeyClass(classOf[Text])
     job.setMapOutputValueClass(classOf[WritableColumn])
     job.setOutputKeyClass(classOf[Text])
