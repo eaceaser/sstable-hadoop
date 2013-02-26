@@ -7,6 +7,7 @@ import org.apache.hadoop.io._
 import org.apache.hadoop.mapreduce.{Mapper, Reducer}
 import org.msgpack.MessagePack
 import org.msgpack.annotation.Message
+import java.util.Arrays
 
 trait Mappers[KEYIN, VALUEIN, KEYOUT, VALUEOUT] extends Mapper[KEYIN, VALUEIN, KEYOUT, VALUEOUT] {
   type Context = Mapper[KEYIN, VALUEIN, KEYOUT, VALUEOUT]#Context
@@ -85,18 +86,18 @@ class MsgPackSSTableDataReducer extends Reducer[BytesWritable, ColumnArrayWritab
       while (it.hasNext()) {
         val cols = it.next()
         cols.get().toList.map(_.asInstanceOf[WritableColumn]).foreach { col =>
-          val colName = Base64.encodeBase64String(col.name.getBytes())
+          val colName = Base64.encodeBase64String(Arrays.copyOfRange(col.name.getBytes, 0, col.name.getLength))
           val latestCol = finalState.get(colName)
           if (latestCol == null || col.timestamp.get > latestCol.timestamp.get) finalState.put(colName, col)
         }
       }
 
       val rv = new MsgPackRow
-      rv.key = key.getBytes()
+      rv.key = Arrays.copyOfRange(key.getBytes, 0, key.getLength)
       rv.cols = finalState.values().toArray(new Array[WritableColumn](0)).map { col =>
         val colrv = new MsgPackCol
-        colrv.key = col.name.getBytes()
-        colrv.value = col.data.getBytes()
+        colrv.key = Arrays.copyOfRange(col.name.getBytes, 0, col.name.getLength)
+        colrv.value = Arrays.copyOfRange(col.data.getBytes, 0, col.data.getLength)
         colrv.ts = col.timestamp.get()
         colrv
       }
