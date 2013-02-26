@@ -18,17 +18,17 @@ import java.io.IOException
 
 class SSTableIndexInputFormat extends PigFileInputFormat[Text, LongWritable] {
   private val Log = LogFactory.getLog(this.getClass())
-  
+
   override def listStatus(job: JobContext) = {
     val list = super.listStatus(job)
     list.filter { fs =>
       fs.getPath().getName().endsWith("-Index.db")
     }
   }
-  
+
   override protected def isSplitable(context: JobContext, filename: Path) = true
   def createRecordReader(split: InputSplit, context: TaskAttemptContext) = new SSTableIndexRecordReader
-  
+
   override def getSplits(job: JobContext) = {
     val conf = job.getConfiguration()
     val splitsDir = conf.get("mapreduce.index.splits.dir")

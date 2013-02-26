@@ -109,13 +109,12 @@ object GenerateSSTableDataSplits {
     private val Log = LogFactory.getLog(this.getClass())
     private val codec = new Base64(false)
     
-    private var chunkPositions: Array[Long] = null
-    private var splits: Array[Array[Long]] = null
     private var splitName: String = null
     private var splitLength: Long = 0L
     private var chunkLength: Long = 0L
-    private var compressedFileSize: Long = 0L
-    private var uncompressedFileSize: Long = 0L
+    
+    private val chunkToSplitIndex: mutable.Map[Int, mutable.Seq[Int]] = mutable.Map.empty
+    private val splitStarts: mutable.Map[Int, Long] = mutable.Map.empty
     
     protected override def setup(context: Context): Unit = try {
       val conf = context.getConfiguration()
@@ -130,8 +129,18 @@ object GenerateSSTableDataSplits {
       val reader = new CompressionInfoReader(is)
       chunkLength = reader.chunkLength
       val maxSplitSize = conf.getLong("sstable.max.split.size", 0L)
-      val chunksPerSplit = maxSplitSize / chunkLength
+      val chunksPerSplit = (maxSplitSize / chunkLength).toInt
       splitLength = (chunksPerSplit * chunkLength)
+      
+      val chunks = reader.toList.zipWithIndex
+      val splits = chunks.sliding(chunksPerSplit+1, chunksPerSplit).toList
+      splits.zipWithIndex.map { case (split, splitIdx) =>
+        split.map { case (chunk, chunkIdx) =>
+          chunkToSplitIndex.getOrElseUpdate(chunkIdx, mutable.ArraySeq()).add(splitIdx)
+        }
+        splitStarts += (splitIdx -> split.head._1)
+      }
+      
     } catch {
       case ex: Throwable => ex.printStackTrace(); throw ex
     }
@@ -143,13 +152,10 @@ object GenerateSSTableDataSplits {
       if (rootName != splitName) throw new IOException("Mapper was not reinstntiated with new split?")
       
       if (chunkLength == 0L) throw new IOException("Could not find compressionInfo for %s.".format(rootName))
-      
-      val splitIndex = value.get() / splitLength
-      val offset = (value.get() - (splitIndex * splitLength))
-      try {
-        context.write(new ChunkIndex(rootName, splitIndex), new LongWritable(offset))
-      } catch {
-        case ex: Exception => println("huh????: %s".format(ex)); throw ex
+      val chunkIndex = value.get() / chunkLength
+      chunkToSplitIndex(chunkIndex.toInt).map { splitIdx =>
+        val offset = (value.get() - splitStarts(splitIdx))
+        context.write(new ChunkIndex(rootName, splitIdx), new LongWritable(offset))
       }
     }
   }
@@ -183,7 +189,7 @@ object GenerateSSTableDataSplits {
       val chunksPerSplit = maxSplitSize / reader.chunkLength
       Log.info("Calculated %s chunks per split from a max split size of %s and a chunk length of %s".format(chunksPerSplit, maxSplitSize, reader.chunkLength))
       
-      val splits = chunkPositions.sliding(chunksPerSplit.toInt, chunksPerSplit.toInt).toArray
+      val splits = chunkPositions.sliding(chunksPerSplit.toInt+1, chunksPerSplit.toInt).toArray
       
       Log.info("Calculated %s splits total".format(splits.length))
       val splitChunks = splits.lift(key.index.get.toInt).getOrElse(Array(chunkPositions.last))

@@ -2,5 +2,7 @@
 .cache
 .classpath
 .project
+.idea/
 target/
+*.iml
 .externalToolBuilders/

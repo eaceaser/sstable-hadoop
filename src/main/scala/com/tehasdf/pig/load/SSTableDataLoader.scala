@@ -11,7 +11,6 @@ import org.apache.pig.impl.util.Utils
 import org.apache.pig.data.DefaultDataBag
 import org.apache.hadoop.io.ArrayWritable
 import com.tehasdf.mapreduce.data.WritableColumn
-import com.tehasdf.mapreduce.data.ColumnState
 
 object SSTableDataLoader {
   private[SSTableDataLoader] val Schema = "key:bytearray,columns:{col:(name: bytearray, state: chararray, data: bytearray)}"
@@ -55,8 +54,8 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
             tuple.set(0, new DataByteArray(casted.name.getBytes()))
             tuple.set(1, casted.state.toString())
             casted.state match {
-              case ColumnState.Normal => tuple.set(2, new DataByteArray(casted.data.getBytes()))
-              case ColumnState.Deleted =>
+              case WritableColumn.State.NORMAL => tuple.set(2, new DataByteArray(casted.data.getBytes()))
+              case WritableColumn.State.DELETED =>
             }
 
             bag.add(tuple)
