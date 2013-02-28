@@ -75,7 +75,7 @@ public class WritableColumn implements WritableComparable<WritableColumn> {
   public void write(DataOutput out) throws IOException {
     out.writeInt(state.ordinal());
     name.write(out);
-    if (state == State.NORMAL) {
+    if (state == State.NORMAL || state == State.EXPIRING) {
       data.write(out);
     } else if (state == State.DELETED) {
     } else {
