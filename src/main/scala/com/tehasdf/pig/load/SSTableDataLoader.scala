@@ -56,6 +56,7 @@ class SSTableDataLoader extends LoadFunc with LoadMetadata {
             casted.state match {
               case WritableColumn.State.NORMAL => tuple.set(2, new DataByteArray(casted.data.getBytes()))
               case WritableColumn.State.DELETED =>
+              case WritableColumn.State.EXPIRING =>
             }
 
             bag.add(tuple)

@@ -10,13 +10,15 @@ import java.io.IOException;
 
 public class WritableColumn implements WritableComparable<WritableColumn> {
   public enum State {
-    NORMAL, DELETED
+    NORMAL, DELETED, EXPIRING
   }
 
   public State state;
   public BytesWritable name;
   public BytesWritable data;
   public LongWritable timestamp;
+  public LongWritable ttl; // seconds
+  public LongWritable expiration; // ms
 
   public WritableColumn() {
 
@@ -29,6 +31,15 @@ public class WritableColumn implements WritableComparable<WritableColumn> {
     this.timestamp = timestamp;
   }
 
+  public WritableColumn(State state, BytesWritable name, BytesWritable data, LongWritable ttl, LongWritable expiration, LongWritable timestamp) {
+    this.state = state;
+    this.name = name;
+    this.data = data;
+    this.ttl = ttl;
+    this.expiration = expiration;
+    this.timestamp = timestamp;
+  }
+
   public void readFields(DataInput in) throws IOException {
     int stateVal = in.readInt();
     state = State.values()[stateVal];
@@ -37,17 +48,28 @@ public class WritableColumn implements WritableComparable<WritableColumn> {
     n.readFields(in);
     name = n;
 
-    if (state == State.NORMAL) {
+    if (state == State.NORMAL || state == State.EXPIRING) {
       BytesWritable d = new BytesWritable();
       d.readFields(in);
       data = d;
     } else if (state == State.DELETED) {
     } else {
+
     }
 
     LongWritable ts = new LongWritable();
     ts.readFields(in);
     timestamp = ts;
+
+    if (state == State.EXPIRING) {
+      LongWritable t = new LongWritable();
+      t.readFields(in);
+      ttl = t;
+
+      LongWritable exp = new LongWritable();
+      exp.readFields(in);
+      expiration = exp;
+    }
   }
 
   public void write(DataOutput out) throws IOException {
@@ -59,6 +81,11 @@ public class WritableColumn implements WritableComparable<WritableColumn> {
     } else {
     }
     timestamp.write(out);
+
+    if (state == State.EXPIRING) {
+      ttl.write(out);
+      expiration.write(out);
+    }
   }
 
   public int compareTo(WritableColumn other) {

@@ -67,6 +67,8 @@ class SSTableDataRecordReader extends RecordReader[BytesWritable, ColumnArrayWri
             arr.add(new WritableColumn(WritableColumn.State.NORMAL, new BytesWritable(name), new BytesWritable(data), new LongWritable(timestamp)))
           case Deleted(name, timestamp) =>
             arr.add(new WritableColumn(WritableColumn.State.DELETED, new BytesWritable(name), null, new LongWritable(timestamp)))
+          case Expiring(name, data, ttl, expiration, timestamp) =>
+            arr.add(new WritableColumn(WritableColumn.State.EXPIRING, new BytesWritable(name), new BytesWritable(data), new LongWritable(ttl), new LongWritable(expiration), new LongWritable(timestamp)))
         }
       }
       val rv = new ColumnArrayWritable

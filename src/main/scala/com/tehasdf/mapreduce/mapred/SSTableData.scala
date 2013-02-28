@@ -66,6 +66,8 @@ class MsgPackCol {
   var key: Array[Byte] = null
   var value: Array[Byte] = null
   var ts: Long = 0L
+  var expiresMillis: Long = 0L
+  var ttlSecs: Long = 0L
 }
 
 @Message
@@ -97,8 +99,16 @@ class MsgPackSSTableDataReducer extends Reducer[BytesWritable, ColumnArrayWritab
       rv.cols = finalState.values().toArray(new Array[WritableColumn](0)).map { col =>
         val colrv = new MsgPackCol
         colrv.key = Arrays.copyOfRange(col.name.getBytes, 0, col.name.getLength)
-        colrv.value = Arrays.copyOfRange(col.data.getBytes, 0, col.data.getLength)
-        colrv.ts = col.timestamp.get()
+        if (col.state == WritableColumn.State.NORMAL || col.state == WritableColumn.State.EXPIRING) {
+          colrv.value = Arrays.copyOfRange(col.data.getBytes, 0, col.data.getLength)
+          colrv.ts = col.timestamp.get()
+        }
+
+        if (col.state == WritableColumn.State.EXPIRING) {
+          colrv.ttlSecs = col.ttl.get()
+          colrv.expiresMillis = col.expiration.get()
+        }
+
         colrv
       }
 
